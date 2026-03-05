@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: runner-ingress
+  namespace: qslate
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /backtest
+            pathType: Prefix
+            backend:
+              service:
+                name: runner-svc
+                port:
+                  number: 80
