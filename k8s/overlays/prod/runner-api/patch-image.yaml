@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runner
+spec:
+  template:
+    spec:
+      containers:
+        - name: runner
+          image: ghcr.io/qslate/runner:latest
+          env:
+            - name: WORKER_IMAGE
+              value: ghcr.io/qslate/worker:latest
