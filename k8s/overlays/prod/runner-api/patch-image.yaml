@@ -5,9 +5,9 @@ metadata:
 spec:
   template:
     spec:
+      imagePullSecrets:
+        - name: ghcr-secret
       containers:
         - name: runner
           image: ghcr.io/qslate/runner:latest
-          env:
-            - name: WORKER_IMAGE
-              value: ghcr.io/qslate/worker:latest
+          imagePullPolicy: Always

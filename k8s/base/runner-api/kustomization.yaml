@@ -4,7 +4,6 @@ kind: Kustomization
 namespace: qslate
 
 resources:
-  - rbac.yaml
   - deployment.yaml
   - service.yaml
   - ingress.yaml

@@ -14,57 +14,32 @@ spec:
       labels:
         app: runner
     spec:
-      serviceAccountName: runner-sa
       containers:
         - name: runner
           image: runner:latest
           ports:
-            - containerPort: 8080
+            - containerPort: 8090
           env:
-            - name: PORT
-              value: "8080"
-            - name: K8S_NAMESPACE
-              value: qslate
-            - name: K8S_S3_SECRET
-              value: qslate-s3-secret
-            - name: WORKER_IMAGE
-              value: worker:latest
-            - name: AWS_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: qslate-s3-secret
-                  key: AWS_ACCESS_KEY_ID
-            - name: AWS_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: qslate-s3-secret
-                  key: AWS_SECRET_ACCESS_KEY
-            - name: S3_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: qslate-s3-secret
-                  key: S3_BUCKET
-            - name: AWS_REGION
-              valueFrom:
-                secretKeyRef:
-                  name: qslate-s3-secret
-                  key: AWS_REGION
+            - name: RUNNER_HOST
+              value: "0.0.0.0"
+            - name: RUNNER_PORT
+              value: "8090"
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 10
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /healthz
-              port: 8080
-            initialDelaySeconds: 3
-            periodSeconds: 5
+              port: 8090
+            initialDelaySeconds: 5
+            periodSeconds: 10
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
               cpu: 200m
-              memory: 256Mi
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
