@@ -14,10 +14,13 @@ read -rp "Looks good? Apply for real? [y/N] " confirm
 kubectl apply -k "k8s/overlays/${OVERLAY}"
 
 echo ""
-echo "── Waiting for rollout ─────────────────────────────────────────────────"
-kubectl rollout status deployment/runner -n qslate --timeout=120s
+echo "── Waiting for rollouts ────────────────────────────────────────────────"
+kubectl rollout status deployment/runner   -n qslate --timeout=120s
+kubectl rollout status deployment/backend  -n qslate --timeout=120s
+kubectl rollout status deployment/frontend -n qslate --timeout=120s
 
 echo ""
-echo "✓ Deployed. Test with:"
-echo "  kubectl port-forward svc/runner-svc 8080:80 -n qslate"
-echo "  echo 'hello' | curl -X POST http://localhost:8080/backtest/run --data-binary @-"
+echo "✓ Deployed. Services available at http://37.27.93.212"
+echo "  Frontend : http://37.27.93.212/"
+echo "  Backend  : http://37.27.93.212/api/"
+echo "  Runner   : http://37.27.93.212/backtest/"
