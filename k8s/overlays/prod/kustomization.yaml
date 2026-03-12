@@ -5,11 +5,19 @@ namespace: qslate
 
 resources:
   - ../../base/runner-api
-  - externalsecrets/clustersecretstore.yaml
-  - runner-api/externalsecret.yaml
+  - ../../base/backend-api
+  - ../../base/frontend
 
 patches:
   - path: runner-api/patch-image.yaml
     target:
       kind: Deployment
       name: runner
+  - path: backend-api/patch-image.yaml
+    target:
+      kind: Deployment
+      name: backend
+  - path: frontend/patch-image.yaml
+    target:
+      kind: Deployment
+      name: frontend

@@ -1,0 +1,16 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: backend
+          image: ghcr.io/qslate/backend:latest
+          imagePullPolicy: Always
+          env:
+            - name: RUNNER_SERVICE_URL
+              value: "http://runner-svc/backtest/run"
