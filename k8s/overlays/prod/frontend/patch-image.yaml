@@ -1,13 +1,13 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: runner
+  name: frontend
 spec:
   template:
     spec:
       imagePullSecrets:
         - name: ghcr-secret
       containers:
-        - name: runner
-          image: ghcr.io/qslate/runner:latest
+        - name: frontend
+          image: ghcr.io/qslate/frontend:latest
           imagePullPolicy: Always
