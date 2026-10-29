@@ -25,13 +25,14 @@ echo "back:      $BACK_TAG"
 echo "front:     $FRONT_TAG"
 
 # A throwaway kustomization on top of the overlay that only sets the tags.
-tmp="$(mktemp -d)"
+# Created next to the overlays so the relative path works on Linux and macOS.
+tmp="$(mktemp -d "$ROOT/k8s/.deploy.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 cat >"$tmp/kustomization.yaml" <<EOF
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - $(realpath --relative-to="$tmp" "$OVERLAY")
+  - ../overlays/$ENV
 images:
   - {name: ghcr.io/qslate/gateway, newTag: "$BACK_TAG"}
   - {name: ghcr.io/qslate/auth, newTag: "$BACK_TAG"}

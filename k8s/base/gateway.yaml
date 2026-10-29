@@ -37,6 +37,8 @@ spec:
               value: http://auth:8080
             - name: WORKSPACE_SERVICE_URL
               value: http://workspace:8080
+            - name: ROUTES_FILE # the code's default is a relative path that is not in the image
+              value: /app/routes.json
             - name: JWT_PUBLIC_KEY_FILE
               value: /run/secrets/jwt/auth-public.pem
             - name: ALLOWED_ORIGINS

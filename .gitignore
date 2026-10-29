@@ -1,0 +1,2 @@
+# Temporary kustomizations created by scripts/deploy.sh
+k8s/.deploy.*/
