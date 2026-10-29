@@ -23,7 +23,7 @@ Prerequisites: OCI CLI configured (`~/.oci/config`), a public subnet, an SSH pub
 SUBNET_ID=<public subnet OCID> ./oracle/launch-retry.sh
 ```
 
-Optional variables: `OCPUS` (2), `MEMORY_GB` (12), `INTERVAL` (60 s), `NAME`, `SSH_KEY`.
+Optional variables: `OCPUS` (2), `MEMORY_GB` (12), `UBUNTU_VERSION` (26.04), `INTERVAL` (60 s), `NAME`, `SSH_KEY`.
 The VM runs `cloud-init.yaml` on first boot; progress is in `/var/log/cloud-init-output.log`.
 
 The current VM was created from the console without `cloud-init.yaml`; the same steps were applied by hand over SSH on 2026-10-29.

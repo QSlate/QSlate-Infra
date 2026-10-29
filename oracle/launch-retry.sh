@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Retry creating the QSlate A1 VM until Oracle has capacity ("Out of host capacity").
-# Free tier only: VM.Standard.A1.Flex, Ubuntu 24.04, 100 GB boot volume.
+# Free tier only: VM.Standard.A1.Flex, Ubuntu (26.04 by default), 100 GB boot volume.
 #
 # Usage: SUBNET_ID=ocid1.subnet... ./oracle/launch-retry.sh
-# Optional env: OCPUS (2), MEMORY_GB (12), INTERVAL (60 seconds), NAME (qslate-k3s-1)
+# Optional env: OCPUS (2), MEMORY_GB (12), INTERVAL (60 seconds), NAME (qslate-k3s-1), UBUNTU_VERSION (26.04)
 # Requires: oci CLI configured (~/.oci/config), ~/.ssh/qslate_oracle.pub
 set -euo pipefail
 
@@ -13,6 +13,7 @@ NAME="${NAME:-qslate-k3s-1}"
 OCPUS="${OCPUS:-2}"
 MEMORY_GB="${MEMORY_GB:-12}"
 INTERVAL="${INTERVAL:-60}"
+UBUNTU_VERSION="${UBUNTU_VERSION:-26.04}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/qslate_oracle.pub}"
 : "${SUBNET_ID:?set SUBNET_ID to the public subnet OCID}"
 
@@ -34,7 +35,7 @@ COMPARTMENT_ID="${COMPARTMENT_ID:-$(awk -F= '/^tenancy/ {print $2; exit}' ~/.oci
 AD="$(lookup oci iam availability-domain list --compartment-id "$COMPARTMENT_ID" \
     --query 'data[0].name' --raw-output)"
 IMAGE_ID="$(lookup oci compute image list --compartment-id "$COMPARTMENT_ID" \
-    --operating-system "Canonical Ubuntu" --operating-system-version "24.04" \
+    --operating-system "Canonical Ubuntu" --operating-system-version "$UBUNTU_VERSION" \
     --shape VM.Standard.A1.Flex --sort-by TIMECREATED --sort-order DESC \
     --query 'data[?!contains("display-name", `Minimal`)] | [0].id' --raw-output)"
 
