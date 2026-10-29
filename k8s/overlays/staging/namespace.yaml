@@ -1,0 +1,10 @@
+# Pod Security "restricted": Kubernetes refuses any pod running as root,
+# with privileges or without a seccomp profile.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: qslate-staging
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

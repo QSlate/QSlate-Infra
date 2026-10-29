@@ -1,0 +1,26 @@
+# Traefik (built into k3s) routes by path. The /qslate/v1 prefix is kept: the
+# gateway and the refresh cookie (Path=/qslate/v1/auth) expect it.
+# The overlay adds the host and TLS once the domain exists.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: qslate
+spec:
+  ingressClassName: traefik
+  rules:
+    - http:
+        paths:
+          - path: /qslate/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  name: http

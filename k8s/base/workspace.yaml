@@ -1,0 +1,86 @@
+# Dashboards, widgets and layouts (Go, QSlate-Back/services/workspace).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workspace
+  labels:
+    app: workspace
+spec:
+  replicas: 1 # migrations run at start-up: keep a single replica
+  selector:
+    matchLabels:
+      app: workspace
+  template:
+    metadata:
+      labels:
+        app: workspace
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: workspace
+          image: ghcr.io/qslate/workspace
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: HTTP_ADDR
+              value: ":8080"
+            - name: AUTH_SERVICE_URL
+              value: http://auth:8080
+            - name: JWT_PUBLIC_KEY_FILE
+              value: /run/secrets/jwt/auth-public.pem
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: workspace-db
+                  key: DATABASE_URL
+          volumeMounts:
+            - name: jwt-public
+              mountPath: /run/secrets/jwt
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: jwt-public
+          secret:
+            secretName: auth-jwt-public
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workspace
+  labels:
+    app: workspace
+spec:
+  selector:
+    app: workspace
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

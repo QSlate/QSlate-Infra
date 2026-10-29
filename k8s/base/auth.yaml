@@ -1,0 +1,95 @@
+# Accounts, sessions, OAuth2 (Go, QSlate-Back/services/auth). Signs the JWTs.
+# It is the only service that mounts the JWT private key.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth
+  labels:
+    app: auth
+spec:
+  replicas: 1 # migrations run at start-up: keep a single replica
+  selector:
+    matchLabels:
+      app: auth
+  template:
+    metadata:
+      labels:
+        app: auth
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: auth
+          image: ghcr.io/qslate/auth
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: HTTP_ADDR
+              value: ":8080"
+            - name: JWT_PRIVATE_KEY_FILE
+              value: /run/secrets/jwt/auth-private.pem
+            - name: ACCESS_TOKEN_TTL
+              value: 15m
+            - name: REFRESH_TOKEN_TTL
+              value: 720h
+            - name: BCRYPT_COST
+              value: "12"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: auth-db
+                  key: DATABASE_URL
+          envFrom:
+            # ALLOWED_ORIGINS, PUBLIC_APP_URL, COOKIE_SECURE, SMTP_* (set by the overlay)
+            - configMapRef:
+                name: environment
+          volumeMounts:
+            - name: jwt-private
+              mountPath: /run/secrets/jwt
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m # bcrypt is CPU-heavy on login and signup
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: jwt-private
+          secret:
+            secretName: auth-jwt-private
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth
+  labels:
+    app: auth
+spec:
+  selector:
+    app: auth
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

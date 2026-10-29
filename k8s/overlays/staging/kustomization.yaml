@@ -1,0 +1,37 @@
+# Staging: automatic deploys from main, fake data only, on the Oracle VM.
+#
+# No domain yet, so staging is reached through an SSH tunnel:
+#   ssh -L 8080:127.0.0.1:80 ubuntu@<VM_PUBLIC_IP>   then open http://localhost:8080
+# Hence the localhost origin and COOKIE_SECURE=false below. Switch to
+# https://staging.<domain> and COOKIE_SECURE=true when TLS is in place.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: qslate-staging
+
+resources:
+  - namespace.yaml
+  - quota.yaml
+  - mailpit.yaml
+  - ../../base
+
+configMapGenerator:
+  - name: environment
+    literals:
+      - ALLOWED_ORIGINS=http://localhost:8080
+      - PUBLIC_APP_URL=http://localhost:8080
+      - COOKIE_SECURE=false
+      - SMTP_ADDR=mailpit:1025
+      - SMTP_TLS_MODE=plain
+      - SMTP_FROM=noreply@qslate.local
+
+# Real tags are set at deploy time (scripts/deploy.sh), never "latest".
+images:
+  - name: ghcr.io/qslate/gateway
+    newTag: set-at-deploy
+  - name: ghcr.io/qslate/auth
+    newTag: set-at-deploy
+  - name: ghcr.io/qslate/workspace
+    newTag: set-at-deploy
+  - name: ghcr.io/qslate/frontend
+    newTag: set-at-deploy

@@ -1,0 +1,18 @@
+# Everything one QSlate environment needs, without environment-specific values.
+# An overlay (k8s/overlays/<env>) adds the namespace, the "environment" ConfigMap
+# and the image tags. Secrets are never in this repo: see scripts/create-secrets.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: qslate
+
+resources:
+  - gateway.yaml
+  - auth.yaml
+  - workspace.yaml
+  - frontend.yaml
+  - postgres.yaml
+  - ingress.yaml
+  - networkpolicies.yaml
