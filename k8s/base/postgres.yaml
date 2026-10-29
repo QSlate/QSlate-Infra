@@ -1,0 +1,133 @@
+# One PostgreSQL server, one database and one role per service (no joins between
+# services, as in QSlate-Back/docs/architecture.md). Reachable only by auth and workspace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+data:
+  # Runs once, on the first start with an empty data directory.
+  10-create-databases.sh: |
+    #!/bin/sh
+    set -eu
+    psql -v ON_ERROR_STOP=1 --username postgres \
+      -v auth_pw="$AUTH_DB_PASSWORD" -v workspace_pw="$WORKSPACE_DB_PASSWORD" <<'SQL'
+    CREATE ROLE auth LOGIN PASSWORD :'auth_pw';
+    CREATE DATABASE qslate_auth OWNER auth;
+    REVOKE ALL ON DATABASE qslate_auth FROM PUBLIC;
+    CREATE ROLE workspace LOGIN PASSWORD :'workspace_pw';
+    CREATE DATABASE qslate_workspace OWNER workspace;
+    REVOKE ALL ON DATABASE qslate_workspace FROM PUBLIC;
+    SQL
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70 # "postgres" user of the alpine image
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: POSTGRES_PASSWORD
+            - name: AUTH_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: AUTH_DB_PASSWORD
+            - name: WORKSPACE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: WORKSPACE_DB_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, postgres, -h, 127.0.0.1]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: [pg_isready, -U, postgres, -h, 127.0.0.1]
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: init
+          configMap:
+            name: postgres-init
+            defaultMode: 0555 # executed, not sourced, by the image's entrypoint
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres

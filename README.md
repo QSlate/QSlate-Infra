@@ -1,198 +1,110 @@
 # QSlate Infra
 
-Kubernetes infrastructure for the QSlate platform. This repo contains all K8s manifests, Kustomize overlays, and deployment scripts. It contains **no application code** — that lives in `qslate-back` and `qslate-front`.
+Kubernetes infrastructure for QSlate: the Oracle VM, the k3s manifests and the deploy scripts.
+No application code here: it lives in [QSlate-Back](https://github.com/QSlate/QSlate-Back) (Go services) and [QSlate-Front](https://github.com/QSlate/QSlate-Front) (Next.js).
 
-## Architecture Overview
+## Architecture
 
-```
-Internet
-  └── Traefik (VPS: 37.27.93.212)
-        └── runner-svc (ClusterIP)
-              └── runner Pod (ghcr.io/qslate/runner)
-                    ├── S3 bucket (qslate-artifacts-prod-1)
-                    └── K8s Job → worker Pod (ghcr.io/qslate/worker)
-                                      └── S3 bucket (result upload)
-```
-
-When `POST /backtest/run` is called:
-1. Runner uploads the input file to S3
-2. Runner spawns a Kubernetes Job (worker)
-3. Worker downloads the file, processes it, uploads the result to S3
-4. Runner downloads the result and returns it to the caller
-
----
-
-## Repository Structure
+One Oracle Cloud Always Free VM (Ampere A1, arm64, 2 OCPU / 12 GB) runs a single-node k3s cluster.
 
 ```
-qslate-infra/
-├── k8s/
-│   ├── base/
-│   │   └── runner-api/          # Generic K8s manifests (no env-specific values)
-│   │       ├── deployment.yaml  # Runner Deployment
-│   │       ├── service.yaml     # ClusterIP Service
-│   │       ├── ingress.yaml     # Traefik Ingress
-│   │       ├── rbac.yaml        # ServiceAccount + Role + RoleBinding
-│   │       └── kustomization.yaml
-│   └── overlays/
-│       └── prod/                # Production-specific overrides
-│           ├── externalsecrets/
-│           │   └── clustersecretstore.yaml  # Connects ESO to AWS Secrets Manager
-│           ├── runner-api/
-│           │   ├── externalsecret.yaml      # Pulls credentials from AWS into K8s Secret
-│           │   └── patch-image.yaml         # Sets real image tags
-│           └── kustomization.yaml
-└── scripts/
-    ├── bootstrap.sh   # Run once: installs ESO + creates IAM bootstrap secret
-    └── deploy.sh      # Applies the prod overlay to the cluster
+Browser
+  └── Traefik (built into k3s, ports 80/443)
+        ├── /            → frontend  (Next.js, :3000)
+        └── /qslate/v1/* → gateway   (Go: JWT, CORS, rate limit, routes.json, :8080)
+                              ├── auth       (Go, :8080) ──┐
+                              └── workspace  (Go, :8080) ──┴── postgres (one server, one database per service)
 ```
 
----
+- Only Traefik is reachable from the internet. Everything else is a ClusterIP Service.
+- In each environment, NetworkPolicies deny all traffic, then allow only the paths above (see `k8s/base/networkpolicies.yaml`).
+- Every pod runs as non-root, read-only filesystem, no capabilities, seccomp `RuntimeDefault`. The namespace enforces Pod Security `restricted`.
+- Images are tagged with the git commit SHA, never `latest`.
 
-## How Secrets Work
+Backtests (one Kubernetes Job per run, launched by the runner) are not deployed yet: they need the worker image from the back team.
 
-Credentials never live in this repo. The flow is:
+## Layout
 
 ```
-AWS Secrets Manager (qslate/s3-credentials)
-  └── External Secrets Operator (polls every 1h)
-        └── K8s Secret "qslate-s3-secret" (auto-created in qslate namespace)
-              └── Injected as env vars into runner Pod and worker Job Pods
+oracle/                  VM creation (OCI CLI) and first-boot setup (cloud-init), see oracle/README.md
+k8s/base/                every component, without environment-specific values
+k8s/overlays/staging/    namespace qslate-staging, quota, mailpit, environment ConfigMap
+scripts/create-secrets.sh  generates an environment's Secrets in the cluster (nothing on disk)
+scripts/deploy.sh          deploys an overlay with explicit image tags
 ```
 
-The only manual secret is `aws-iam-bootstrap` (created by `bootstrap.sh`), which gives ESO permission to read from AWS Secrets Manager. Everything else is automated.
+## Environments
 
----
+| Env | Namespace | Deployed | Data |
+|---|---|---|---|
+| local | your machine (Docker Compose in QSlate-Back, or k3d) | on demand | fixtures |
+| staging | `qslate-staging` on the Oracle VM | from `main` | fake data only |
+| prod | `qslate-prod` on the same VM (later) | on a release tag, after approval | beta users |
 
-## Prerequisites
+## Access
 
-- k3s cluster running (Traefik included by default)
-- `kubectl` configured to point at the cluster
-- `helm` installed locally
-- AWS account with:
-  - S3 bucket (`qslate-artifacts-prod-1`)
-  - IAM user (`qslate-user`) with policies:
-    - `qslate-s3-policy` (S3 read/write on the bucket)
-    - `qslate-secretsmanager-policy` (read `qslate/s3-credentials`)
-  - Secret in AWS Secrets Manager named `qslate/s3-credentials` with keys:
-    - `AWS_ACCESS_KEY_ID`
-    - `AWS_SECRET_ACCESS_KEY`
-    - `S3_BUCKET`
-    - `AWS_REGION`
-
----
-
-## First-time Setup (run once per cluster)
+You need the VM's SSH key from the infra owner. Never commit or share keys or the kubeconfig.
 
 ```bash
-export AWS_ACCESS_KEY_ID=AKIA...
-export AWS_SECRET_ACCESS_KEY=...
-chmod +x scripts/bootstrap.sh
-./scripts/bootstrap.sh
+# Shell on the VM
+ssh -i ~/.ssh/<vm key> ubuntu@<VM_PUBLIC_IP>
+
+# kubectl from your machine: the k3s API (6443) is never public, go through SSH
+ssh -i ~/.ssh/<vm key> -f -N -L 16443:127.0.0.1:6443 ubuntu@<VM_PUBLIC_IP>
+export KUBECONFIG=~/.kube/qslate-oracle.yaml   # server: https://127.0.0.1:16443
+kubectl get nodes
+
+# Staging in your browser (no domain yet): http://localhost:8080
+ssh -i ~/.ssh/<vm key> -f -N -L 8080:127.0.0.1:80 ubuntu@<VM_PUBLIC_IP>
 ```
 
-This will:
-1. Install the External Secrets Operator via Helm
-2. Create the `aws-iam-bootstrap` K8s secret in the `external-secrets` namespace
-3. Create the `qslate` namespace
+## Deploy an environment
 
-Then apply the ClusterSecretStore and ExternalSecret manually (Kustomize dry-run can't validate CRDs):
-```bash
-kubectl apply -f k8s/overlays/prod/externalsecrets/clustersecretstore.yaml
-kubectl apply -f k8s/overlays/prod/runner-api/externalsecret.yaml
-```
-
-Verify the secret synced successfully:
-```bash
-kubectl get externalsecret -n qslate
-# STATUS should be "SecretSynced" and READY "True"
-```
-
----
-
-## Deploying
+First time only, create the namespace and its Secrets:
 
 ```bash
-# Apply base first
-kubectl apply -k k8s/base/runner-api
-
-# Apply prod overlay (image patch)
-kubectl apply -k k8s/overlays/prod
+kubectl apply -f k8s/overlays/staging/namespace.yaml
+./scripts/create-secrets.sh qslate-staging
 ```
 
-Or use the deploy script (does a dry-run first):
-```bash
-./scripts/deploy.sh
-```
-
----
-
-## Testing
-
-Port-forward for local testing:
-```bash
-kubectl port-forward svc/runner-svc 8080:80 -n qslate
-echo "Hello QSlate!" | curl -X POST http://localhost:8080/backtest/run --data-binary @-
-```
-
-Through Traefik (public):
-```bash
-echo "Hello QSlate!" | curl -X POST http://37.27.93.212/backtest/run --data-binary @-
-```
-
-Expected response:
-```
-QSlate Worker Result
-====================
-Input file  : runs/<uuid>/input/input.txt
-Byte size   : 14
-Char count  : 14
-```
-
----
-
-## Updating After a Code Change
-
-Images are built and pushed from `qslate-back`. After a new image is pushed to GHCR, force the cluster to pull it:
+Then, for every deploy (tags = commit SHAs of the images on GHCR):
 
 ```bash
-kubectl rollout restart deployment/runner -n qslate
+BACK_TAG=<QSlate-Back SHA> FRONT_TAG=<QSlate-Front SHA> ./scripts/deploy.sh staging --dry-run
+BACK_TAG=<QSlate-Back SHA> FRONT_TAG=<QSlate-Front SHA> ./scripts/deploy.sh staging
 ```
 
----
+`--dry-run` makes the API server validate everything without changing anything. Without it, the script applies the overlay and waits for every rollout.
 
-## Team Access
+Useful commands:
 
-### VPS (SSH)
-Each team member generates their own key pair and sends their **public key** to the VPS admin:
 ```bash
-ssh-keygen -t ed25519 -C "your@email.com"
-# send ~/.ssh/id_ed25519.pub to the admin
+kubectl -n qslate-staging get pods
+kubectl -n qslate-staging logs deploy/gateway -f
+kubectl -n qslate-staging port-forward svc/mailpit 8025   # emails sent by auth, http://localhost:8025
 ```
 
-Admin adds it to the VPS:
-```bash
-echo "ssh-ed25519 AAAA..." >> ~/.ssh/authorized_keys
-```
+## Secrets
 
-### Kubernetes
-Get the kubeconfig from the VPS and replace the internal IP with the public one:
-```bash
-# on the VPS
-cat /etc/rancher/k3s/k3s.yaml
-# replace 127.0.0.1 with 37.27.93.212
-# save to ~/.kube/config on your local machine
-```
+Secrets are never in this repo. `scripts/create-secrets.sh` generates them directly in the cluster:
 
-### AWS
-Each team member gets their own IAM user in the QSlate AWS account with the same policies as `qslate-user`. Never share credentials.
+| Secret | Used by | Content |
+|---|---|---|
+| `postgres` | postgres | superuser password, one password per service role |
+| `auth-db`, `workspace-db` | auth, workspace | `DATABASE_URL` |
+| `auth-jwt-private` | auth only | Ed25519 private key that signs the JWTs |
+| `auth-jwt-public` | gateway, workspace | matching public key |
 
----
+The script never overwrites an existing Secret. Rotation is a deliberate, documented operation (to be written in `docs/runbook.md`).
 
-## Related Repos
+## Not done yet
 
-| Repo | Role |
-|---|---|
-| `qslate-infra` | This repo — K8s manifests and deployment |
-| `qslate-back` | Go microservices (runner, worker) + Dockerfiles |
-| `qslate-front` | Next.js frontend |
+- Images: QSlate-Back's CI does not publish `gateway`, `auth`, `workspace` (amd64 + arm64) yet, and QSlate-Front's image does not build (`output: "standalone"` missing in `next.config.ts`, and the API URL must become same-origin).
+- Domain and HTTPS. Until then, staging is only reachable through the SSH tunnel and the VCN security list only opens port 22.
+- Runner, worker image and backtest Jobs, object storage.
+- Backups, monitoring, VPN for team access, prod overlay.
+
+## Related repos
+
+- [QSlate-Back](https://github.com/QSlate/QSlate-Back): Go gateway and services, Python backtest engine.
+- [QSlate-Front](https://github.com/QSlate/QSlate-Front): Next.js dashboard.

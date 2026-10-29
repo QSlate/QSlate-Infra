@@ -1,0 +1,27 @@
+# Staging shares the VM (2 OCPU / 12 GB) with prod later: keep it small.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: staging
+spec:
+  hard:
+    pods: "20"
+    requests.cpu: "1"
+    requests.memory: 2Gi
+    limits.memory: 4Gi
+    persistentvolumeclaims: "3"
+    requests.storage: 20Gi
+---
+# Defaults for a container that forgets to declare its resources.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      default:
+        memory: 256Mi
