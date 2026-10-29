@@ -1,0 +1,61 @@
+#cloud-config
+# First-boot setup for the QSlate k3s VM on Oracle Cloud (Ampere A1, Ubuntu 24.04 or 26.04).
+# The current VM (2026-10-28) was created without it: the same steps were applied by hand over SSH.
+# Paste into: Create instance > Advanced options > Management > Paste cloud-init script.
+# No secrets in this file. Logs on the VM: /var/log/cloud-init-output.log
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - fail2ban
+  - unattended-upgrades
+  - netfilter-persistent
+  - iptables-persistent
+
+write_files:
+  # SSH: keys only, no root login. "00-" because sshd keeps the FIRST value it reads,
+  # so this file must sort before the image's 60-cloudimg-settings.conf.
+  - path: /etc/ssh/sshd_config.d/00-qslate-hardening.conf
+    permissions: "0644"
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+
+  # Security updates applied automatically
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+  # sshd logs to journald on recent Ubuntu, hence backend = systemd
+  - path: /etc/fail2ban/jail.d/qslate.local
+    permissions: "0644"
+    content: |
+      [sshd]
+      enabled = true
+      backend = systemd
+      maxretry = 5
+      bantime = 1h
+
+runcmd:
+  - systemctl restart ssh
+  - systemctl enable --now fail2ban
+
+  # The Oracle Ubuntu image REJECTs everything except 22 in INPUT and all FORWARD traffic.
+  # Open 80/443 and let k3s pod (10.42/16) and service (10.43/16) traffic through.
+  # The k3s API (6443) stays closed: reach it through an SSH tunnel.
+  - iptables -I INPUT -p tcp -m state --state NEW --dport 80 -j ACCEPT
+  - iptables -I INPUT -p tcp -m state --state NEW --dport 443 -j ACCEPT
+  - iptables -I INPUT -s 10.42.0.0/16 -j ACCEPT
+  - iptables -I INPUT -s 10.43.0.0/16 -j ACCEPT
+  - iptables -I FORWARD -s 10.42.0.0/16 -j ACCEPT
+  - iptables -I FORWARD -d 10.42.0.0/16 -j ACCEPT
+  # Save BEFORE installing k3s, so its own chains are never written to rules.v4.
+  - netfilter-persistent save
+
+  # k3s single node, Traefik built in. Kubeconfig readable by root only.
+  # Pinned to the version running on the current VM; bump it on purpose.
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.36.5+k3s1 sh -s - server --node-name qslate-k3s-1 --write-kubeconfig-mode 600
